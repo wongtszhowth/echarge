@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E-Charge Whampoa</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f4f6f9;
+            color: #333;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        h1 {
+            color: #2c3e50;
+            margin-bottom: 20px;
+        }
+
+        .table-container {
+            width: 100%;
+            max-width: 800px;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+        }
+
+        th, td {
+            padding: 12px 15px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        th {
+            background-color: #2980b9;
+            color: white;
+            font-weight: 600;
+        }
+
+        /* Highlight the very first row to emphasize it is the newest */
+        tbody tr:first-child {
+            background-color: #ebf5fb;
+            font-weight: bold;
+        }
+
+        tr:hover {
+            background-color: #f8f9fa;
+        }
+
+        .loading {
+            text-align: center;
+            color: #7f8c8d;
+            font-style: italic;
+            padding: 20px;
+        }
+
+        .error {
+            color: #c0392b;
+            font-weight: bold;
+            text-align: center;
+            padding: 20px;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>E-Charge Whampoa</h1>
+
+    <div class="table-container">
+        <table id="data-table">
+            <thead>
+                <tr>
+                    <th>Date & Time</th>
+                    <th>🈳</th>
+                    <th>🔋</th>
+                    <th>🚫</th></th>
+                    <th>#️⃣</th>
+                </tr>
+            </thead>
+            <tbody id="table-body">
+                <tr>
+                    <td colspan="5" class="loading">Fetching latest data...</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        // REPLACE THIS WITH YOUR ACTUAL CSV LINK
+        const csvUrl = r"C:\Users\wongth\OneDrive - chusheklun.edu.hk\#Temp\Car\ECharge\echarge_whampoa_log.csv"; 
+
+        async function fetchCSVData() {
+            const tableBody = document.getElementById('table-body');
+            
+            try {
+                const response = await fetch(csvUrl);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.text();
+                
+                // Split by newlines to get rows and clean up whitespace
+                const rows = data.split('\n')
+                    .map(row => row.trim())
+                    .filter(row => row.length > 0); 
+
+                // Assuming row 0 is the header. If there is NO header, change 'rows.slice(1)' to just 'rows'
+                const dataRows = rows.slice(1); 
+
+                // Get the last 16 rows, then REVERSE them so the newest is at index 0
+                const latest16Reversed = dataRows.slice(-16).reverse();
+
+                // Clear loading text
+                tableBody.innerHTML = '';
+
+                // Generate HTML for the table rows
+                latest16Reversed.forEach(row => {
+                    const columns = row.split(',');
+                    const tr = document.createElement('tr');
+                    
+                    columns.forEach(col => {
+                        const td = document.createElement('td');
+                        td.textContent = col.trim();
+                        tr.appendChild(td);
+                    });
+                    
+                    tableBody.appendChild(tr);
+                });
+
+            } catch (error) {
+                console.error('Error fetching CSV:', error);
+                tableBody.innerHTML = `<tr><td colspan="5" class="error">Failed to load data. Ensure CORS is enabled on the CSV host.</td></tr>`;
+            }
+        }
+
+        // Fetch data immediately on load
+        fetchCSVData();
+
+        // Auto-refresh the data every 30 seconds
+        setInterval(fetchCSVData, 30000);
+    </script>
+</body>
+</html>
