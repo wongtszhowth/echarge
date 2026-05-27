@@ -43,15 +43,15 @@
         }
 
         th {
-            background-color: #2980b9;
+            background-color: #05451b;
             color: white;
             font-weight: 600;
         }
 
-        /* Highlight the very first row to emphasize it is the newest */
-        tbody tr:first-child {
-            background-color: #ebf5fb;
-            font-weight: bold;
+        /* Center-align columns 2 to 5 for headers and data cells */
+        th:nth-child(n+2), 
+        td:nth-child(n+2) {
+            text-align: center;
         }
 
         tr:hover {
@@ -82,9 +82,9 @@
             <thead>
                 <tr>
                     <th>Date & Time</th>
-                    <th>🈳</th>
+                    <th>⚡</th>
                     <th>🔋</th>
-                    <th>🚫</th></th>
+                    <th>🅿️</th>
                     <th>#️⃣</th>
                 </tr>
             </thead>
@@ -97,7 +97,6 @@
     </div>
 
     <script>
-        // REPLACE THIS WITH YOUR ACTUAL CSV LINK
         const csvUrl = 'echarge_whampoa_log.csv'; 
 
         async function fetchCSVData() {
@@ -111,21 +110,16 @@
                 
                 const data = await response.text();
                 
-                // Split by newlines to get rows and clean up whitespace
                 const rows = data.split('\n')
                     .map(row => row.trim())
                     .filter(row => row.length > 0); 
 
-                // Assuming row 0 is the header. If there is NO header, change 'rows.slice(1)' to just 'rows'
                 const dataRows = rows.slice(1); 
 
-                // Get the last 16 rows, then REVERSE them so the newest is at index 0
                 const latest16Reversed = dataRows.slice(-16).reverse();
 
-                // Clear loading text
                 tableBody.innerHTML = '';
 
-                // Generate HTML for the table rows
                 latest16Reversed.forEach(row => {
                     const columns = row.split(',');
                     const tr = document.createElement('tr');
@@ -145,10 +139,7 @@
             }
         }
 
-        // Fetch data immediately on load
         fetchCSVData();
-
-        // Auto-refresh the data every 30 seconds
         setInterval(fetchCSVData, 30000);
     </script>
 </body>
