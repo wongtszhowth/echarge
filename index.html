@@ -16,9 +16,25 @@
             align-items: center;
         }
 
-        h1 {
+        /* Title styled as an interactive button */
+        .refresh-title {
             color: #2c3e50;
             margin-bottom: 20px;
+            cursor: pointer;
+            transition: transform 0.1s ease, color 0.2s ease;
+            user-select: none;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .refresh-title:hover {
+            color: #05451b;
+            transform: scale(1.02);
+        }
+
+        .refresh-title:active {
+            transform: scale(0.98);
         }
 
         .table-container {
@@ -48,7 +64,7 @@
             font-weight: 600;
         }
 
-        /* Center-align columns 2 to 5 for headers and data cells */
+        /* Center-align all columns starting from the Elapsed column */
         th:nth-child(n+2), 
         td:nth-child(n+2) {
             text-align: center;
@@ -71,21 +87,34 @@
             text-align: center;
             padding: 20px;
         }
+
+        /* Subtle indicator pill styling for charging events */
+        .charging-badge {
+            background-color: #e8f8f5;
+            color: #117a65;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-weight: bold;
+            font-size: 0.9em;
+            display: inline-block;
+        }
     </style>
 </head>
 <body>
 
-    <h1>E-Charge WP 🔋</h1>
+    <h1 class="refresh-title" id="refresh-btn" title="Click to refresh data">
+        E-Charge WP 🔋
+    </h1>
 
     <div class="table-container">
         <table id="data-table">
             <thead>
                 <tr>
                     <th>Date & Time</th>
+                    <th>🔌</th>
                     <th>🈳</th>
                     <th>⚡</th>
-                    <th>🚫</th>
-                    <th>#️⃣</th>
+                    <th>🛑</th>
                 </tr>
             </thead>
             <tbody id="table-body">
@@ -99,11 +128,33 @@
     <script>
         const csvUrl = 'echarge_whampoa_log.csv'; 
 
+        // Fix corrupted text glyph headers and adjust layout positions
+        const CLEAN_HEADERS = ["Date & Time", "Elapsed", "⚡ In Use", "🔋 Avail", "🅿️ Empty"];
+
+        function parseCustomDate(dateStr) {
+            // Adjust this if your CSV timestamp format varies drastically (e.g., YYYY-MM-DD HH:mm:ss)
+            return new Date(dateStr.replace(/-/g, '/'));
+        }
+
+        function calculateElapsed(rowDateStr) {
+            const rowTime = parseCustomDate(dateStr);
+            const now = new Date();
+            const diffMs = now - rowTime;
+
+            if (isNaN(diffMs) || diffMs < 0) return "";
+
+            const totalMinutes = Math.floor(diffMs / 60000);
+            const hours = Math.floor(totalMinutes / 60);
+            const minutes = totalMinutes % 60;
+
+            return `${hours}h${minutes.toString().padStart(2, '0')}m`;
+        }
+
         async function fetchCSVData() {
             const tableBody = document.getElementById('table-body');
             
             try {
-                const response = await fetch(csvUrl);
+                const response = await fetch(`${csvUrl}?t=${new Date().getTime()}`); // Cache buster
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
@@ -116,28 +167,82 @@
 
                 const dataRows = rows.slice(1); 
 
-                const latest16Reversed = dataRows.slice(-16).reverse();
+                // Get the last 17 rows so we can compare the 16th row with its predecessor
+                const sampleCount = Math.min(dataRows.length, 17);
+                const targetedSlice = dataRows.slice(-sampleCount);
 
                 tableBody.innerHTML = '';
 
-                latest16Reversed.forEach(row => {
-                    const columns = row.split(',');
+                // Iterate through the slice backwards (from newest entries down to oldest entries)
+                for (let i = targetedSlice.length - 1; i >= 0; i--) {
+                    // Stop processing if we drop below our targeted viewport threshold
+                    if (targetedSlice.length - i > 16) break;
+
+                    const currentColumns = targetedSlice[i].split(',');
+                    
+                    // Edge case: line formatting validation check
+                    if (currentColumns.length < 4) continue;
+
+                    // Extracted core parameters: [0]=Timestamp, [1]=In-Use (⚡)
+                    const dateStr = currentColumns[0].trim();
+                    const currentInUse = parseInt(currentColumns[1].trim(), 10) || 0;
+
+                    let elapsedDisplay = "";
+
+                    // Peak downstream check: Is there an older row available to calculate increment constraints?
+                    if (i > 0) {
+                        const previousColumns = targetedSlice[i - 1].split(',');
+                        const previousInUse = parseInt(previousColumns[1].trim(), 10) || 0;
+
+                        // Check condition: Charging event detected via metrics incrementation step
+                        if (currentInUse > previousInUse) {
+                            const rowTime = parseCustomDate(dateStr);
+                            const now = new Date();
+                            const diffMs = now - rowTime;
+
+                            if (!isNaN(diffMs) && diffMs >= 0) {
+                                const totalMinutes = Math.floor(diffMs / 60000);
+                                const hours = Math.floor(totalMinutes / 60);
+                                const minutes = totalMinutes % 60;
+                                elapsedDisplay = `<span class="charging-badge">${hours}h${minutes.toString().padStart(2, '0')}m</span>`;
+                            }
+                        }
+                    }
+
                     const tr = document.createElement('tr');
                     
-                    columns.forEach(col => {
+                    // 1. Column: Date & Time
+                    const tdTime = document.createElement('td');
+                    tdTime.textContent = dateStr;
+                    tr.appendChild(tdTime);
+
+                    // 2. Column: New Elapsed Column insertion point
+                    const tdElapsed = document.createElement('td');
+                    tdElapsed.innerHTML = elapsedDisplay;
+                    tr.appendChild(tdElapsed);
+
+                    // 3. Columns: Dynamic structural array tracking loop for metrics parameters 2, 3, and 4
+                    for (let j = 1; j <= 3; j++) {
                         const td = document.createElement('td');
-                        td.textContent = col.trim();
+                        td.textContent = currentColumns[j] ? currentColumns[j].trim() : "";
                         tr.appendChild(td);
-                    });
+                    }
                     
                     tableBody.appendChild(tr);
-                });
+                }
 
             } catch (error) {
                 console.error('Error fetching CSV:', error);
                 tableBody.innerHTML = `<tr><td colspan="5" class="error">Failed to load data. Ensure CORS is enabled on the CSV host.</td></tr>`;
             }
         }
+
+        // Attach layout actions
+        document.getElementById('refresh-btn').addEventListener('click', () => {
+            const tableBody = document.getElementById('table-body');
+            tableBody.innerHTML = '<tr><td colspan="5" class="loading">Refreshing latest data...</td></tr>';
+            fetchCSVData();
+        });
 
         fetchCSVData();
         setInterval(fetchCSVData, 30000);
