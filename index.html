@@ -64,7 +64,7 @@
             font-weight: 600;
         }
 
-        /* Center-align all columns starting from the Elapsed column */
+        /* Center-align all columns starting from the Elapsed column (Columns 2-5) */
         th:nth-child(n+2), 
         td:nth-child(n+2) {
             text-align: center;
@@ -88,7 +88,7 @@
             padding: 20px;
         }
 
-        /* Subtle indicator pill styling for charging events */
+        /* Indicator pill styling for charging events */
         .charging-badge {
             background-color: #e8f8f5;
             color: #117a65;
@@ -112,9 +112,9 @@
                 <tr>
                     <th>Date & Time</th>
                     <th>Elapsed</th>
-                    <th>⚡ In Use</th>
-                    <th>🔋 Avail</th>
-                    <th>🅿️ Empty</th>
+                    <th>Available</th>
+                    <th>In Use</th>
+                    <th>Stopped</th>
                 </tr>
             </thead>
             <tbody id="table-body">
@@ -128,33 +128,48 @@
     <script>
         const csvUrl = 'echarge_whampoa_log.csv'; 
 
-        // Fix corrupted text glyph headers and adjust layout positions
-        const CLEAN_HEADERS = ["Date & Time", "Elapsed", "⚡ In Use", "🔋 Avail", "🅿️ Empty"];
+        function calculateSimpleElapsed(dateStr) {
+            try {
+                // 1. Extract the time part (HH:MM:SS) from "MM-DD HH:MM:SS"
+                const parts = dateStr.trim().split(' ');
+                if (parts.length < 2) return "";
+                
+                const timeParts = parts[1].split(':');
+                if (timeParts.length < 2) return "";
 
-        function parseCustomDate(dateStr) {
-            // Adjust this if your CSV timestamp format varies drastically (e.g., YYYY-MM-DD HH:mm:ss)
-            return new Date(dateStr.replace(/-/g, '/'));
-        }
+                const rowHours = parseInt(timeParts[0], 10);
+                const rowMinutes = parseInt(timeParts[1], 10);
+                const rowTotalMinutes = (rowHours * 60) + rowMinutes;
 
-        function calculateElapsed(rowDateStr) {
-            const rowTime = parseCustomDate(dateStr);
-            const now = new Date();
-            const diffMs = now - rowTime;
+                // 2. Get current system hours and minutes
+                const now = new Date();
+                const currentHours = now.getHours();
+                const currentMinutes = now.getMinutes();
+                const currentTotalMinutes = (currentHours * 60) + currentMinutes;
 
-            if (isNaN(diffMs) || diffMs < 0) return "";
+                // 3. Calculate the difference in minutes
+                let diffMinutes = currentTotalMinutes - rowTotalMinutes;
 
-            const totalMinutes = Math.floor(diffMs / 60000);
-            const hours = Math.floor(totalMinutes / 60);
-            const minutes = totalMinutes % 60;
+                // Handle midnight crossover if the row was logged late yesterday
+                if (diffMinutes < 0) {
+                    diffMinutes += 24 * 60; 
+                }
 
-            return `${hours}h${minutes.toString().padStart(2, '0')}m`;
+                const displayHours = Math.floor(diffMinutes / 60);
+                const displayMinutes = diffMinutes % 60;
+
+                return `<span class="charging-badge">${displayHours}h${displayMinutes.toString().padStart(2, '0')}m</span>`;
+            } catch (e) {
+                console.error("Error calculating simplified elapsed time:", e);
+                return "";
+            }
         }
 
         async function fetchCSVData() {
             const tableBody = document.getElementById('table-body');
             
             try {
-                const response = await fetch(`${csvUrl}?t=${new Date().getTime()}`); // Cache buster
+                const response = await fetch(`${csvUrl}?t=${new Date().getTime()}`); 
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
@@ -167,44 +182,36 @@
 
                 const dataRows = rows.slice(1); 
 
-                // Get the last 17 rows so we can compare the 16th row with its predecessor
-                const sampleCount = Math.min(dataRows.length, 17);
+                // Pull up to 18 rows so we can evaluate differences for a full 16-row table view
+                const sampleCount = Math.min(dataRows.length, 18);
                 const targetedSlice = dataRows.slice(-sampleCount);
 
                 tableBody.innerHTML = '';
 
-                // Iterate through the slice backwards (from newest entries down to oldest entries)
+                // Iterate backwards to list the newest events at the top
                 for (let i = targetedSlice.length - 1; i >= 0; i--) {
-                    // Stop processing if we drop below our targeted viewport threshold
+                    // Limit visible rows to exactly 16 entries
                     if (targetedSlice.length - i > 16) break;
 
                     const currentColumns = targetedSlice[i].split(',');
-                    
-                    // Edge case: line formatting validation check
-                    if (currentColumns.length < 4) continue;
+                    if (currentColumns.length < 4) continue; 
 
-                    // Extracted core parameters: [0]=Timestamp, [1]=In-Use (⚡)
                     const dateStr = currentColumns[0].trim();
-                    const currentInUse = parseInt(currentColumns[1].trim(), 10) || 0;
-
                     let elapsedDisplay = "";
 
-                    // Peak downstream check: Is there an older row available to calculate increment constraints?
-                    if (i > 0) {
-                        const previousColumns = targetedSlice[i - 1].split(',');
-                        const previousInUse = parseInt(previousColumns[1].trim(), 10) || 0;
+                    // Look ahead (upwards) to the row logged AFTER this one to detect if an increment happened
+                    if (i < targetedSlice.length - 1) {
+                        const futureColumns = targetedSlice[i + 1].split(',');
+                        if (futureColumns.length >= 4) {
+                            const futureInUse = parseInt(futureColumns[2].trim(), 10) || 0;
+                            const currentInUse = parseInt(currentColumns[2].trim(), 10) || 0;
 
-                        // Check condition: Charging event detected via metrics incrementation step
-                        if (currentInUse > previousInUse) {
-                            const rowTime = parseCustomDate(dateStr);
-                            const now = new Date();
-                            const diffMs = now - rowTime;
-
-                            if (!isNaN(diffMs) && diffMs >= 0) {
-                                const totalMinutes = Math.floor(diffMs / 60000);
-                                const hours = Math.floor(totalMinutes / 60);
-                                const minutes = totalMinutes % 60;
-                                elapsedDisplay = `<span class="charging-badge">${hours}h${minutes.toString().padStart(2, '0')}m</span>`;
+                            // Condition: If the newer row (futureColumns) has a larger "In Use" value 
+                            // than this historical row (currentColumns), it means an increment just started here!
+                            if (futureInUse > currentInUse) {
+                                // Calculate elapsed time using the timestamp of the row where it increased
+                                const futureDateStr = futureColumns[0].trim();
+                                elapsedDisplay = calculateSimpleElapsed(futureDateStr);
                             }
                         }
                     }
@@ -216,12 +223,13 @@
                     tdTime.textContent = dateStr;
                     tr.appendChild(tdTime);
 
-                    // 2. Column: New Elapsed Column insertion point
+                    // 2. Column: Elapsed Time
                     const tdElapsed = document.createElement('td');
+                    // If we assigned an elapsed badge during lookahead, place it here
                     tdElapsed.innerHTML = elapsedDisplay;
                     tr.appendChild(tdElapsed);
 
-                    // 3. Columns: Dynamic structural array tracking loop for metrics parameters 2, 3, and 4
+                    // 3, 4, 5. Columns: Available, In Use, Stopped
                     for (let j = 1; j <= 3; j++) {
                         const td = document.createElement('td');
                         td.textContent = currentColumns[j] ? currentColumns[j].trim() : "";
@@ -237,7 +245,7 @@
             }
         }
 
-        // Attach layout actions
+        // Setup manual refresh action on title click
         document.getElementById('refresh-btn').addEventListener('click', () => {
             const tableBody = document.getElementById('table-body');
             tableBody.innerHTML = '<tr><td colspan="5" class="loading">Refreshing latest data...</td></tr>';
