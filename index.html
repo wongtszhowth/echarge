@@ -103,7 +103,7 @@
 <body>
 
     <h1 class="refresh-title" id="refresh-btn" title="Click to refresh data">
-        E-Charge WP 🔋 V2 🔄
+        E-Charge WP 🔋 V3 🔄
     </h1>
 
     <div class="table-container">
@@ -199,19 +199,17 @@
                     const dateStr = currentColumns[0].trim();
                     let elapsedDisplay = "";
 
-                    // Look ahead (upwards) to the row logged AFTER this one to detect if an increment happened
-                    if (i < targetedSlice.length - 1) {
-                        const futureColumns = targetedSlice[i + 1].split(',');
-                        if (futureColumns.length >= 4) {
-                            const futureInUse = parseInt(futureColumns[2].trim(), 10) || 0;
+                    // Look down (backwards) to the row logged BEFORE this one to check for increments
+                    if (i > 0) {
+                        const previousColumns = targetedSlice[i - 1].split(',');
+                        if (previousColumns.length >= 4) {
                             const currentInUse = parseInt(currentColumns[2].trim(), 10) || 0;
+                            const previousInUse = parseInt(previousColumns[2].trim(), 10) || 0;
 
-                            // Condition: If the newer row (futureColumns) has a larger "In Use" value 
-                            // than this historical row (currentColumns), it means an increment just started here!
-                            if (futureInUse > currentInUse) {
-                                // Calculate elapsed time using the timestamp of the row where it increased
-                                const futureDateStr = futureColumns[0].trim();
-                                elapsedDisplay = calculateSimpleElapsed(futureDateStr);
+                            // Condition: If this row (currentInUse) has a larger value than the older row (previousInUse),
+                            // it means the increment happened right on this row!
+                            if (currentInUse > previousInUse) {
+                                elapsedDisplay = calculateSimpleElapsed(dateStr);
                             }
                         }
                     }
@@ -225,7 +223,6 @@
 
                     // 2. Column: Elapsed Time
                     const tdElapsed = document.createElement('td');
-                    // If we assigned an elapsed badge during lookahead, place it here
                     tdElapsed.innerHTML = elapsedDisplay;
                     tr.appendChild(tdElapsed);
 
