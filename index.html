@@ -19,7 +19,7 @@
         /* Title styled as an interactive button */
         .refresh-title {
             color: #2c3e50;
-            margin-bottom: 20px;
+            margin-bottom: 5px;
             cursor: pointer;
             transition: transform 0.1s ease, color 0.2s ease;
             user-select: none;
@@ -35,6 +35,14 @@
 
         .refresh-title:active {
             transform: scale(0.98);
+        }
+
+        /* Last updated timestamp line styling */
+        .update-status {
+            font-size: 0.95em;
+            color: #555;
+            margin-bottom: 20px;
+            font-weight: 500;
         }
 
         .table-container {
@@ -106,11 +114,13 @@
         E-Charge WP 🔋
     </h1>
 
+    <div class="update-status" id="update-timestamp">Last updated: Fetching...</div>
+
     <div class="table-container">
         <table id="data-table">
             <thead>
                 <tr>
-                    <th>Date & Time</th>
+                    <th>Time</th>
                     <th>🔌</th>
                     <th>🈳</th>
                     <th>⚡</th>
@@ -128,10 +138,10 @@
     <script>
         const csvUrl = 'echarge_whampoa_log.csv'; 
 
-        function calculateSimpleElapsed(dateStr) {
+        function calculateSimpleElapsed(fullDateStr) {
             try {
-                // 1. Extract the time part (HH:MM:SS) from "MM-DD HH:MM:SS"
-                const parts = dateStr.trim().split(' ');
+                // Extract the time part (HH:MM:SS) from "MM-DD HH:MM:SS"
+                const parts = fullDateStr.trim().split(' ');
                 if (parts.length < 2) return "";
                 
                 const timeParts = parts[1].split(':');
@@ -141,16 +151,16 @@
                 const rowMinutes = parseInt(timeParts[1], 10);
                 const rowTotalMinutes = (rowHours * 60) + rowMinutes;
 
-                // 2. Get current system hours and minutes
+                // Get current local system hours and minutes
                 const now = new Date();
                 const currentHours = now.getHours();
                 const currentMinutes = now.getMinutes();
                 const currentTotalMinutes = (currentHours * 60) + currentMinutes;
 
-                // 3. Calculate the difference in minutes
+                // Calculate the difference in minutes
                 let diffMinutes = currentTotalMinutes - rowTotalMinutes;
 
-                // Handle midnight crossover if the row was logged late yesterday
+                // Handle midnight crossover boundaries elegantly
                 if (diffMinutes < 0) {
                     diffMinutes += 24 * 60; 
                 }
@@ -167,6 +177,7 @@
 
         async function fetchCSVData() {
             const tableBody = document.getElementById('table-body');
+            const updateStatus = document.getElementById('update-timestamp');
             
             try {
                 const response = await fetch(`${csvUrl}?t=${new Date().getTime()}`); 
@@ -181,47 +192,59 @@
                     .filter(row => row.length > 0); 
 
                 const dataRows = rows.slice(1); 
+                if (dataRows.length === 0) return;
 
-                // Pull up to 18 rows so we can evaluate differences for a full 16-row table view
+                // Update the "Last updated" string using the full timestamp from the newest row (the last item)
+                const newestRawRow = dataRows[dataRows.length - 1].split(',');
+                if (newestRawRow.length >= 1) {
+                    updateStatus.textContent = `Last updated: ${newestRawRow[0].trim()}`;
+                }
+
+                // Pull up to 18 rows so we can compare differences for a clean 16-row window view
                 const sampleCount = Math.min(dataRows.length, 18);
                 const targetedSlice = dataRows.slice(-sampleCount);
 
                 tableBody.innerHTML = '';
 
-                // Iterate backwards to list the newest events at the top
+                // Iterate backwards to list the newest events at the very top
                 for (let i = targetedSlice.length - 1; i >= 0; i--) {
-                    // Limit visible rows to exactly 16 entries
                     if (targetedSlice.length - i > 16) break;
 
                     const currentColumns = targetedSlice[i].split(',');
                     if (currentColumns.length < 4) continue; 
 
-                    const dateStr = currentColumns[0].trim();
+                    const fullDateStr = currentColumns[0].trim();
+                    
+                    // Isolate just the "HH:MM:SS" portion for table rendering display
+                    let displayTimeOnly = fullDateStr;
+                    const timePartsSplit = fullDateStr.split(' ');
+                    if (timePartsSplit.length >= 2) {
+                        displayTimeOnly = timePartsSplit[1]; 
+                    }
+
                     let elapsedDisplay = "";
 
-                    // Look down (backwards) to the row logged BEFORE this one to check for increments
+                    // Look down to the line logged prior to check for metric changes
                     if (i > 0) {
                         const previousColumns = targetedSlice[i - 1].split(',');
                         if (previousColumns.length >= 4) {
                             const currentInUse = parseInt(currentColumns[2].trim(), 10) || 0;
                             const previousInUse = parseInt(previousColumns[2].trim(), 10) || 0;
 
-                            // Condition: If this row (currentInUse) has a larger value than the older row (previousInUse),
-                            // it means the increment happened right on this row!
                             if (currentInUse > previousInUse) {
-                                elapsedDisplay = calculateSimpleElapsed(dateStr);
+                                elapsedDisplay = calculateSimpleElapsed(fullDateStr);
                             }
                         }
                     }
 
                     const tr = document.createElement('tr');
                     
-                    // 1. Column: Date & Time
+                    // 1. Column: Simplified Time Only (HH:MM:SS)
                     const tdTime = document.createElement('td');
-                    tdTime.textContent = dateStr;
+                    tdTime.textContent = displayTimeOnly;
                     tr.appendChild(tdTime);
 
-                    // 2. Column: Elapsed Time
+                    // 2. Column: Elapsed Time Duration
                     const tdElapsed = document.createElement('td');
                     tdElapsed.innerHTML = elapsedDisplay;
                     tr.appendChild(tdElapsed);
@@ -239,10 +262,11 @@
             } catch (error) {
                 console.error('Error fetching CSV:', error);
                 tableBody.innerHTML = `<tr><td colspan="5" class="error">Failed to load data. Ensure CORS is enabled on the CSV host.</td></tr>`;
+                updateStatus.textContent = "Last updated: Error checking file";
             }
         }
 
-        // Setup manual refresh action on title click
+        // Setup manual refresh trigger event actions on title click
         document.getElementById('refresh-btn').addEventListener('click', () => {
             const tableBody = document.getElementById('table-body');
             tableBody.innerHTML = '<tr><td colspan="5" class="loading">Refreshing latest data...</td></tr>';
